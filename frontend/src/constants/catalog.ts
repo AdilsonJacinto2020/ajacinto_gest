@@ -3,7 +3,7 @@ export const COMPANY_INFO = {
   shortName: "ADIJACINTO",
   nif: "5001375962",
   address: "Luanda, Município de Luanda, Distrito Urbano de Samba, Bairro Morro Bento, Rua e Casa s/nº, junto ao Imetro",
-  phone: "+244 923 000 000 / 990 000 000",
+  phone: "947 501 108 / 940 030 860",
   email: "contacto@adijacinto.ao",
   footerNotice: "Documento emitido para comprovação interna de recargas e serviços de telecomunicações/TV.",
 };
