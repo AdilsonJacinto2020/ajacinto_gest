@@ -86,6 +86,28 @@ export const INITIAL_PRODUCTS: CatalogItem[] = [
   { id: "u-c-4", operator: "UNITEL", category: "Net Casa", name: "Net Casa 35.000 AKZ", price: 35000, recipientType: "TELEFONE" },
 
   // ================= AFRICELL (Afrimoney) =================
+  // Tudo e Todos (Afrimoney: Vender dados > Tudo e Todos) - dados + minutos + SMS
+  { id: "a-t-1", operator: "AFRICELL", category: "Tudo e Todos", name: "600MB + 40Min + 40SMS (24h)", price: 300, recipientType: "TELEFONE" },
+  { id: "a-t-2", operator: "AFRICELL", category: "Tudo e Todos", name: "400MB + 40Min + 40SMS (3d)", price: 300, recipientType: "TELEFONE" },
+  { id: "a-t-3", operator: "AFRICELL", category: "Tudo e Todos", name: "600MB + 50Min + 50SMS (3d)", price: 400, recipientType: "TELEFONE" },
+  { id: "a-t-4", operator: "AFRICELL", category: "Tudo e Todos", name: "900MB + 60Min + 60SMS (3d)", price: 500, recipientType: "TELEFONE" },
+  { id: "a-t-5", operator: "AFRICELL", category: "Tudo e Todos", name: "1200MB + 90Min + 45SMS (3d)", price: 600, recipientType: "TELEFONE" },
+  { id: "a-t-6", operator: "AFRICELL", category: "Tudo e Todos", name: "1300MB + 110Min + 110SMS (3d)", price: 700, recipientType: "TELEFONE" },
+  { id: "a-t-7", operator: "AFRICELL", category: "Tudo e Todos", name: "1000MB + 50Min + 25SMS (7d)", price: 500, recipientType: "TELEFONE" },
+  { id: "a-t-8", operator: "AFRICELL", category: "Tudo e Todos", name: "1100MB + 70Min + 70SMS (7d)", price: 625, recipientType: "TELEFONE" },
+  { id: "a-t-9", operator: "AFRICELL", category: "Tudo e Todos", name: "1600MB + 120Min + 120SMS (7d)", price: 1000, recipientType: "TELEFONE" },
+  { id: "a-t-10", operator: "AFRICELL", category: "Tudo e Todos", name: "2.5GB + 130Min + 130SMS (7d)", price: 1200, recipientType: "TELEFONE" },
+  { id: "a-t-11", operator: "AFRICELL", category: "Tudo e Todos", name: "5GB + 260Min + 130SMS (7d)", price: 2500, recipientType: "TELEFONE" },
+  { id: "a-t-12", operator: "AFRICELL", category: "Tudo e Todos", name: "12GB + 600Min + 150SMS (7d)", price: 6000, recipientType: "TELEFONE" },
+  { id: "a-t-13", operator: "AFRICELL", category: "Tudo e Todos", name: "20GB + 1400Min (7d)", price: 10000, recipientType: "TELEFONE" },
+  { id: "a-t-14", operator: "AFRICELL", category: "Tudo e Todos", name: "24GB + 1600Min (7d)", price: 12500, recipientType: "TELEFONE" },
+  { id: "a-t-15", operator: "AFRICELL", category: "Tudo e Todos", name: "500MB + 70Min + 60SMS (30d)", price: 2000, recipientType: "TELEFONE" },
+  { id: "a-t-16", operator: "AFRICELL", category: "Tudo e Todos", name: "6.5GB + 300Min (30d)", price: 5000, recipientType: "TELEFONE" },
+  { id: "a-t-17", operator: "AFRICELL", category: "Tudo e Todos", name: "13GB + 700Min (30d)", price: 10000, recipientType: "TELEFONE" },
+  { id: "a-t-18", operator: "AFRICELL", category: "Tudo e Todos", name: "22GB + 1500Min (30d)", price: 18000, recipientType: "TELEFONE" },
+  { id: "a-t-19", operator: "AFRICELL", category: "Tudo e Todos", name: "35GB + 2300Min (30d)", price: 30000, recipientType: "TELEFONE" },
+  { id: "a-t-20", operator: "AFRICELL", category: "Tudo e Todos", name: "50GB + 3500Min (30d)", price: 40000, recipientType: "TELEFONE" },
+
   { id: "a-v-1", operator: "AFRICELL", category: "Voz & SMS", name: "40Min + 40SMS (24h)", price: 200, recipientType: "TELEFONE" },
   { id: "a-v-2", operator: "AFRICELL", category: "Voz & SMS", name: "70Min + 50SMS (24h)", price: 300, recipientType: "TELEFONE" },
   { id: "a-v-3", operator: "AFRICELL", category: "Voz & SMS", name: "60Min + 60SMS (3d)", price: 300, recipientType: "TELEFONE" },
