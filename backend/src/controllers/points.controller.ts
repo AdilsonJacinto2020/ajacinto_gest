@@ -10,6 +10,34 @@ export class PointsController {
     return this.pointsService.findAll();
   }
 
+  @Post()
+  async createPoint(
+    @Body() body: { name: string; location?: string; assignedOperatorName?: string; initialCash?: number },
+  ) {
+    return this.pointsService.createPoint(body);
+  }
+
+  @Post(':id/update')
+  async updatePoint(
+    @Param('id') id: string,
+    @Body() body: { name?: string; location?: string; assignedOperatorName?: string },
+  ) {
+    return this.pointsService.updatePoint(id, body);
+  }
+
+  @Get(':id/expenses')
+  async getExpenses(@Param('id') id: string) {
+    return this.pointsService.getExpenses(id);
+  }
+
+  @Post(':id/expenses')
+  async addExpense(
+    @Param('id') id: string,
+    @Body() body: { amount: number; reason: string; operatorName: string },
+  ) {
+    return this.pointsService.addExpense(id, Number(body.amount), body.reason, body.operatorName);
+  }
+
   @Post(':id/open')
   async openShift(
     @Param('id') id: string,

@@ -15,7 +15,17 @@ export interface SalePointState {
   location: string;
   currentCashBalance: number;
   isOpen: boolean;
+  assignedOperatorName?: string | null;
   currentOperatorName: string | null;
+}
+
+export interface CashExpenseRecord {
+  id: string;
+  salePointId: string;
+  amount: number;
+  reason: string;
+  operatorName: string;
+  createdAt: string;
 }
 
 export interface WalletState {

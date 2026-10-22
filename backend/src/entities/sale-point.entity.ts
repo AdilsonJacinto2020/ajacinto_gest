@@ -29,7 +29,10 @@ export class SalePoint {
   isOpen: boolean;
 
   @Column({ nullable: true })
-  currentOperatorName: string;
+  assignedOperatorName: string; // Operador fixo/alocado ao ponto
+
+  @Column({ nullable: true })
+  currentOperatorName: string; // Operador no turno ativo
 
   @CreateDateColumn()
   createdAt: Date;

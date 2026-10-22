@@ -44,6 +44,120 @@ export default function App() {
 
   const [transfers, setTransfers] = useState<TransferRecord[]>([]);
 
+  // Criar novo Ponto de Venda
+  const handleCreatePoint = async (
+    name: string,
+    location: string,
+    assignedOperator: string,
+    initialCash: number
+  ) => {
+    try {
+      const res = await fetch(`${API_BASE}/points`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          location,
+          assignedOperatorName: assignedOperator,
+          initialCash,
+        }),
+      });
+      const newPt = await res.json();
+      if (newPt?.id) {
+        setPoints((prev) => [...prev, newPt]);
+        setActivePointId(newPt.id);
+        alert(`Ponto "${name}" criado com sucesso!`);
+        return;
+      }
+    } catch (e) {
+      console.log("Modo local");
+    }
+
+    // Fallback local
+    const newPt: SalePointState = {
+      id: `pt-${Date.now()}`,
+      name,
+      location: location || "Luanda",
+      assignedOperatorName: assignedOperator || null,
+      currentCashBalance: initialCash || 0,
+      isOpen: false,
+      currentOperatorName: null,
+    };
+    setPoints((prev) => [...prev, newPt]);
+    setActivePointId(newPt.id);
+    alert(`Ponto "${name}" criado com sucesso!`);
+  };
+
+  // Atualizar / Renomear Ponto e alocar operador
+  const handleUpdatePoint = async (
+    pointId: string,
+    name: string,
+    location: string,
+    assignedOperator: string
+  ) => {
+    try {
+      await fetch(`${API_BASE}/points/${pointId}/update`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          location,
+          assignedOperatorName: assignedOperator,
+        }),
+      });
+    } catch (e) {
+      console.log("Modo local");
+    }
+
+    setPoints((prev) =>
+      prev.map((p) =>
+        p.id === pointId
+          ? {
+              ...p,
+              name,
+              location,
+              assignedOperatorName: assignedOperator,
+            }
+          : p
+      )
+    );
+    alert("Dados do ponto atualizados com sucesso!");
+  };
+
+  // Registar Saída / Despesa de Caixa no Ponto
+  const handleAddExpense = async (
+    pointId: string,
+    amount: number,
+    reason: string,
+    operator: string
+  ) => {
+    try {
+      await fetch(`${API_BASE}/points/${pointId}/expenses`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount,
+          reason,
+          operatorName: operator,
+        }),
+      });
+    } catch (e) {
+      console.log("Modo local");
+    }
+
+    setPoints((prev) =>
+      prev.map((p) =>
+        p.id === pointId
+          ? {
+              ...p,
+              currentCashBalance: Math.max(0, Number(p.currentCashBalance) - amount),
+            }
+          : p
+      )
+    );
+    alert(`Saída de ${amount.toLocaleString("pt-AO")} Kz registada com sucesso!\nMotivo: ${reason}`);
+  };
+
   // Carrinho e Fatura
   const [cart, setCart] = useState<CartItem[]>([]);
   const [clientName, setClientName] = useState<string>("");
@@ -360,6 +474,9 @@ export default function App() {
           onOpenShift={handleOpenShift}
           onCloseShift={handleCloseShift}
           onTransferBalance={handleTransferBalance}
+          onCreatePoint={handleCreatePoint}
+          onUpdatePoint={handleUpdatePoint}
+          onAddExpense={handleAddExpense}
         />
 
         <div className="pt-2">

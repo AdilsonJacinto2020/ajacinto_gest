@@ -8,6 +8,7 @@ import { BalanceTransfer } from './entities/balance-transfer.entity';
 import { Invoice } from './entities/invoice.entity';
 import { InvoiceItem } from './entities/invoice-item.entity';
 import { User, UserRole } from './entities/user.entity';
+import { CashExpense } from './entities/cash-expense.entity';
 
 import { PointsController } from './controllers/points.controller';
 import { InvoicesController } from './controllers/invoices.controller';
@@ -43,6 +44,7 @@ import { WalletsService } from './services/wallets.service';
       Invoice,
       InvoiceItem,
       User,
+      CashExpense,
     ]),
   ],
   controllers: [

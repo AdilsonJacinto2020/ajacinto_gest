@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SalePoint } from '../entities/sale-point.entity';
 import { Shift, ShiftStatus } from '../entities/shift.entity';
+import { CashExpense } from '../entities/cash-expense.entity';
 
 @Injectable()
 export class PointsService {
@@ -11,10 +12,69 @@ export class PointsService {
     private readonly pointRepo: Repository<SalePoint>,
     @InjectRepository(Shift)
     private readonly shiftRepo: Repository<Shift>,
+    @InjectRepository(CashExpense)
+    private readonly expenseRepo: Repository<CashExpense>,
   ) {}
 
   async findAll() {
     return this.pointRepo.find({ order: { name: 'ASC' } });
+  }
+
+  // Criar novo Ponto de Venda
+  async createPoint(data: { name: string; location?: string; assignedOperatorName?: string; initialCash?: number }) {
+    const point = this.pointRepo.create({
+      name: data.name,
+      location: data.location || 'Luanda',
+      assignedOperatorName: data.assignedOperatorName || null,
+      currentCashBalance: data.initialCash || 0,
+      isOpen: false,
+    });
+    return this.pointRepo.save(point);
+  }
+
+  // Atualizar / Renomear Ponto e alocar operador
+  async updatePoint(id: string, data: { name?: string; location?: string; assignedOperatorName?: string }) {
+    const point = await this.pointRepo.findOneBy({ id });
+    if (!point) throw new Error('Ponto não encontrado');
+
+    if (data.name !== undefined) point.name = data.name;
+    if (data.location !== undefined) point.location = data.location;
+    if (data.assignedOperatorName !== undefined) point.assignedOperatorName = data.assignedOperatorName;
+
+    return this.pointRepo.save(point);
+  }
+
+  // Registar Saída / Despesa de Dinheiro no Ponto
+  async addExpense(pointId: string, amount: number, reason: string, operatorName: string) {
+    const point = await this.pointRepo.findOneBy({ id: pointId });
+    if (!point) throw new Error('Ponto não encontrado');
+
+    if (Number(point.currentCashBalance) < Number(amount)) {
+      throw new Error('Saldo em caixa insuficiente para esta saída');
+    }
+
+    point.currentCashBalance = Number(point.currentCashBalance) - Number(amount);
+    await this.pointRepo.save(point);
+
+    const expense = this.expenseRepo.create({
+      salePoint: point,
+      amount,
+      reason,
+      operatorName,
+    });
+    return this.expenseRepo.save(expense);
+  }
+
+  // Listar saídas de caixa
+  async getExpenses(pointId?: string) {
+    if (pointId) {
+      return this.expenseRepo.find({
+        where: { salePoint: { id: pointId } },
+        order: { createdAt: 'DESC' },
+        take: 50,
+      });
+    }
+    return this.expenseRepo.find({ order: { createdAt: 'DESC' }, take: 50 });
   }
 
   async openShift(pointId: string, operatorName: string, openingCash: number) {
