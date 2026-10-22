@@ -1,6 +1,13 @@
-import React, { useState } from "react";
-import { CatalogItem } from "../constants/catalog";
-import { Plus, Edit2, Check } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { CatalogItem, Operator } from "../constants/catalog";
+import { Plus, Edit2, Check, Sparkles } from "lucide-react";
+
+const OPERATORS: { value: Operator; label: string }[] = [
+  { value: "UNITEL", label: "Unitel" },
+  { value: "AFRICELL", label: "Africell" },
+  { value: "ZAP", label: "ZAP" },
+  { value: "DSTV", label: "DStv" },
+];
 
 interface ProductCatalogProps {
   products: CatalogItem[];
@@ -12,6 +19,19 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({ products, onAddT
   const [searchTerm, setSearchTerm] = useState<string>("");
   const [editingPriceId, setEditingPriceId] = useState<string | null>(null);
   const [tempPrice, setTempPrice] = useState<number>(0);
+
+  // Coringa: item livre (operadora + descrição + valor) para o que não está no catálogo
+  const [coringaOpen, setCoringaOpen] = useState(false);
+  const [coringaOp, setCoringaOp] = useState<Operator>(products[0]?.operator ?? "UNITEL");
+  const [coringaDesc, setCoringaDesc] = useState("");
+  const [coringaPrice, setCoringaPrice] = useState("");
+  const [coringaOk, setCoringaOk] = useState(false);
+
+  // Ao mudar de separador (Unitel/Africell/...), o Coringa sugere essa operadora
+  const tabOperator = products[0]?.operator;
+  useEffect(() => {
+    if (tabOperator) setCoringaOp(tabOperator);
+  }, [tabOperator]);
 
   const categories = ["TODAS", ...Array.from(new Set(products.map((p) => p.category)))];
 
@@ -33,8 +53,86 @@ export const ProductCatalog: React.FC<ProductCatalogProps> = ({ products, onAddT
     setEditingPriceId(null);
   };
 
+  const handleAddCoringa = (e: React.FormEvent) => {
+    e.preventDefault();
+    const name = coringaDesc.trim();
+    const price = Math.round(Number(coringaPrice.replace(",", ".")) * 100) / 100;
+    if (!name || !Number.isFinite(price) || price <= 0) return;
+
+    onAddToCart({
+      id: `coringa-${Date.now()}`,
+      operator: coringaOp,
+      category: "Coringa",
+      name,
+      price,
+      recipientType: coringaOp === "ZAP" || coringaOp === "DSTV" ? "CARTAO" : "TELEFONE",
+    });
+
+    setCoringaDesc("");
+    setCoringaPrice("");
+    setCoringaOk(true);
+    window.setTimeout(() => setCoringaOk(false), 2500);
+  };
+
   return (
     <div className="flex flex-col gap-3">
+      <div className="bg-white border border-dashed border-slate-300 rounded-2xl">
+        <button
+          type="button"
+          onClick={() => setCoringaOpen((v) => !v)}
+          className="w-full flex items-center justify-between gap-2 px-4 py-2.5 text-left"
+        >
+          <span className="flex items-center gap-2 text-sm font-bold text-slate-800">
+            <Sparkles size={15} /> Coringa
+            <span className="text-[11px] font-medium text-slate-500">item livre: escolha a operadora, descreva e dê o valor</span>
+          </span>
+          <span className="text-xs font-semibold text-slate-500">{coringaOpen ? "Fechar" : "Abrir"}</span>
+        </button>
+
+        {coringaOpen && (
+          <form onSubmit={handleAddCoringa} className="px-4 pb-4 grid grid-cols-1 sm:grid-cols-12 gap-2">
+            <select
+              value={coringaOp}
+              onChange={(e) => setCoringaOp(e.target.value as Operator)}
+              className="sm:col-span-3 border border-slate-300 rounded-xl px-3 py-2.5 text-sm bg-white"
+            >
+              {OPERATORS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+            <input
+              required
+              value={coringaDesc}
+              onChange={(e) => setCoringaDesc(e.target.value)}
+              placeholder="Descrição (ex.: Pacote especial 3GB)"
+              className="sm:col-span-5 border border-slate-300 rounded-xl px-3 py-2.5 text-sm"
+            />
+            <input
+              required
+              type="number"
+              min="1"
+              step="0.01"
+              inputMode="decimal"
+              value={coringaPrice}
+              onChange={(e) => setCoringaPrice(e.target.value)}
+              placeholder="Valor (Kz)"
+              className="sm:col-span-2 border border-slate-300 rounded-xl px-3 py-2.5 text-sm"
+            />
+            <button
+              type="submit"
+              className="sm:col-span-2 bg-slate-900 hover:bg-brand-600 text-white text-sm font-bold rounded-xl px-3 py-2.5 active:scale-95 transition-all"
+            >
+              Adicionar
+            </button>
+            {coringaOk && (
+              <p className="sm:col-span-12 text-xs font-semibold text-emerald-600">✓ Adicionado ao carrinho</p>
+            )}
+          </form>
+        )}
+      </div>
+
       <div className="flex flex-col sm:flex-row gap-2">
         <input
           type="text"
