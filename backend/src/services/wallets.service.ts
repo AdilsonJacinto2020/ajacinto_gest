@@ -2,16 +2,50 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Wallet, WalletType } from '../entities/wallet.entity';
+import { BalanceAdjustment, TargetType } from '../entities/balance-adjustment.entity';
 
 @Injectable()
 export class WalletsService {
   constructor(
     @InjectRepository(Wallet)
     private readonly walletRepo: Repository<Wallet>,
+    @InjectRepository(BalanceAdjustment)
+    private readonly adjustmentRepo: Repository<BalanceAdjustment>,
   ) {}
 
   async findAll() {
     return this.walletRepo.find();
+  }
+
+  async adjustBalance(
+    walletId: string,
+    newBalance: number,
+    reason: string,
+    operatorName: string,
+  ) {
+    const wallet = await this.walletRepo.findOneBy({ id: walletId });
+    if (!wallet) throw new Error('Carteira não encontrada');
+
+    const previousBalance = Number(wallet.balance);
+    const targetBalance = Number(newBalance);
+    const diff = targetBalance - previousBalance;
+
+    wallet.balance = targetBalance;
+    const saved = await this.walletRepo.save(wallet);
+
+    const adjustment = this.adjustmentRepo.create({
+      targetType: TargetType.WALLET,
+      targetId: wallet.id,
+      targetName: wallet.name,
+      previousBalance,
+      newBalance: targetBalance,
+      difference: diff,
+      reason: reason || 'Retificação de saldo em carteira',
+      adjustedBy: operatorName || 'Operador',
+    });
+    await this.adjustmentRepo.save(adjustment);
+
+    return { wallet: saved, adjustment };
   }
 
   async deduct(type: WalletType, amount: number) {

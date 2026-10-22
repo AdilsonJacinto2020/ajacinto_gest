@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body } from '@nestjs/common';
+import { Controller, Get, Post, Body, Query } from '@nestjs/common';
 import { InvoicesService } from '../services/invoices.service';
 import { PaymentMethod } from '../entities/invoice.entity';
 
@@ -7,8 +7,8 @@ export class InvoicesController {
   constructor(private readonly invoicesService: InvoicesService) {}
 
   @Get()
-  async getInvoices() {
-    return this.invoicesService.findAll();
+  async getInvoices(@Query('salePointId') salePointId?: string) {
+    return this.invoicesService.findAll(salePointId);
   }
 
   @Post()

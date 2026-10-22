@@ -47,7 +47,7 @@ function loadImageBase64(url: string): Promise<string | null> {
   });
 }
 
-export async function generateInvoicePDF(data: InvoicePrintData) {
+async function buildInvoiceDoc(data: InvoicePrintData): Promise<jsPDF> {
   const doc = new jsPDF({
     unit: "mm",
     format: "a4",
@@ -56,73 +56,70 @@ export async function generateInvoicePDF(data: InvoicePrintData) {
   // Tenta carregar o logotipo oficial
   const logoBase64 = await loadImageBase64("/logo.png");
 
-  // Barra de destaque superior decorativa
-  doc.setFillColor(22, 163, 74); // Verde Marca
-  doc.rect(0, 0, 210, 4, "F");
 
-  // Bloco 1: Logotipo da Empresa
+  // Bloco 1: Logotipo da Empresa e Dados da Empresa no Topo
+  let currentY = 12;
+
   if (logoBase64) {
     try {
       // largura 56mm, altura 15mm mantendo proporções do logo retangular
-      doc.addImage(logoBase64, "PNG", 14, 10, 56, 15);
+      doc.addImage(logoBase64, "PNG", 14, currentY, 56, 15);
+      currentY += 18;
     } catch (e) {
       console.warn("Erro ao desenhar imagem no PDF:", e);
     }
   }
 
-  // Bloco 2: Caixa do Número do Documento (Canto Superior Direito)
-  // Posicionada na extrema direita (X: 132 a 196) com fundo suave
-  doc.setDrawColor(203, 213, 225); // Slate 300
-  doc.setFillColor(248, 250, 252); // Slate 50
-  doc.roundedRect(132, 10, 64, 30, 2, 2, "FD");
-
+  // Bloco dos Dados da Empresa (ocupa a largura inteira abaixo do logo, nunca bate com nada)
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  doc.setTextColor(30, 41, 59); // Slate 800
-  doc.text("FATURA - RECIBO", 136, 17);
-
-  doc.setFontSize(11);
-  doc.setTextColor(22, 163, 74); // Verde Marca
-  doc.text(data.invoiceNumber, 136, 23);
-
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  doc.setTextColor(100, 116, 139); // Slate 500
-  doc.text(`Data / Hora: ${data.date}`, 136, 29);
-  doc.text(`Ponto: ${data.pointName}`, 136, 34);
-  doc.text(`Operador: ${data.operatorName}`, 136, 38);
-
-  // Bloco 3: Dados Institucionais da Empresa (à esquerda, abaixo do logotipo, com largura máxima de 114mm para NUNCA bater na caixa da fatura)
-  const companyStartY = logoBase64 ? 28 : 14;
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(9.5);
+  doc.setFontSize(10);
   doc.setTextColor(15, 23, 42); // Slate 900
-  const splitName = doc.splitTextToSize(COMPANY_INFO.name, 114);
-  doc.text(splitName, 14, companyStartY);
-
-  const addressStartY = companyStartY + splitName.length * 4.2;
+  doc.text(COMPANY_INFO.shortName, 14, currentY);
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
   doc.setTextColor(71, 85, 105); // Slate 600
-  doc.text(`NIF: ${COMPANY_INFO.nif}`, 14, addressStartY);
 
-  const splitAddress = doc.splitTextToSize(`Sede: ${COMPANY_INFO.address}`, 114);
-  doc.text(splitAddress, 14, addressStartY + 4);
+  currentY += 4.2;
 
-  const phoneStartY = addressStartY + 4 + splitAddress.length * 3.5;
+  doc.text(`NIF: ${COMPANY_INFO.nif}`, 14, currentY);
+  currentY += 4.2;
+
+  doc.text(`Sede: ${COMPANY_INFO.address}`, 14, currentY);
+  currentY += 4.2;
+
+  doc.text(`Tel: ${COMPANY_INFO.phone}`, 14, currentY);
+  currentY += 4.2;
+
+  currentY += 7;
+
+  // Bloco 2: Barra / Faixa de Linha Inteira (Display Block) para o Número da Fatura e Metadados
+  // Largura total da folha útil: 14mm a 196mm (182mm)
+  const barY = currentY;
+  const barHeight = 12;
+  doc.setDrawColor(203, 213, 225); // Slate 300
+  doc.setFillColor(241, 245, 249); // Slate 100
+  doc.roundedRect(14, barY, 182, barHeight, 1.5, 1.5, "FD");
+
+  // Faixa esquerda da barra: FATURA - RECIBO N.º
   doc.setFont("helvetica", "bold");
-  doc.setTextColor(30, 41, 59);
-  doc.text(`Tel: ${COMPANY_INFO.phone}`, 14, phoneStartY);
+  doc.setFontSize(10.5);
+  doc.setTextColor(15, 23, 42); // Slate 900
+  doc.text(`FATURA - RECIBO:  ${data.invoiceNumber}`, 18, barY + 7.5);
 
-  // Linha divisória suave
-  const clientBoxY = Math.max(phoneStartY + 5, 46);
-  doc.setDrawColor(226, 232, 240);
-  doc.line(14, clientBoxY - 2, 196, clientBoxY - 2);
+  // Faixa direita da barra: Data / Ponto / Operador
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(7.8);
+  doc.setTextColor(71, 85, 105); // Slate 600
+  const metaText = `Data: ${data.date}   |   Ponto: ${data.pointName}   |   Op: ${data.operatorName}`;
+  doc.text(metaText, 192, barY + 7.5, { align: "right" });
 
-  // Bloco 4: Dados do Cliente
+  currentY = barY + barHeight + 5;
+
+  // Bloco 3: Dados do Cliente
+  const clientBoxY = currentY;
   doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(226, 232, 240);
   doc.roundedRect(14, clientBoxY, 182, 16, 1.5, 1.5, "FD");
 
   doc.setFont("helvetica", "bold");
@@ -218,12 +215,22 @@ export async function generateInvoicePDF(data: InvoicePrintData) {
   doc.setTextColor(100, 116, 139);
   doc.text(COMPANY_INFO.footerNotice, 105, 281, { align: "center" });
   doc.text(
-    `${COMPANY_INFO.name} • Contactos: ${COMPANY_INFO.phone}`,
+    `${COMPANY_INFO.shortName} • Contactos: ${COMPANY_INFO.phone}`,
     105,
     286,
     { align: "center" }
   );
 
-  // Salvar PDF
+  return doc;
+}
+
+export async function generateInvoicePDF(data: InvoicePrintData) {
+  const doc = await buildInvoiceDoc(data);
   doc.save(`${data.invoiceNumber.replace(/[\/\s]/g, "_")}.pdf`);
+}
+
+export async function openInvoicePDFPreview(data: InvoicePrintData) {
+  const doc = await buildInvoiceDoc(data);
+  const blobUrl = doc.output("bloburl");
+  window.open(blobUrl, "_blank");
 }

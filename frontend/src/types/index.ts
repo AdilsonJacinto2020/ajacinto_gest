@@ -42,4 +42,54 @@ export interface TransferRecord {
   amount: number;
   createdAt: string;
   transferredBy: string;
+  reason?: string;
+}
+
+export interface BalanceAdjustmentRecord {
+  id: string;
+  targetType: "SALE_POINT" | "WALLET";
+  targetId?: string;
+  targetName: string;
+  previousBalance: number;
+  newBalance: number;
+  difference: number;
+  reason: string;
+  adjustedBy: string;
+  createdAt: string;
+}
+
+export interface ShiftCloseReport {
+  pointName: string;
+  operatorName: string;
+  openedAt?: string;
+  closedAt: string;
+  openingCash: number;
+  calculatedCash: number;
+  declaredCash: number;
+  difference: number;
+  totalSalesCash: number;
+  totalExpenses: number;
+}
+
+export interface SaleInvoiceRecord {
+  id: string;
+  invoiceNumber: string;
+  clientName: string;
+  clientNif?: string;
+  paymentMethod: string;
+  total: number;
+  operatorName: string;
+  createdAt: string;
+  salePoint?: {
+    id: string;
+    name: string;
+  };
+  items?: Array<{
+    operator: string;
+    productName: string;
+    recipient: string;
+    quantity: number;
+    unitPrice: number;
+    totalPrice: number;
+  }>;
 }

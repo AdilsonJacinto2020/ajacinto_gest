@@ -25,6 +25,24 @@ export class PointsController {
     return this.pointsService.updatePoint(id, body);
   }
 
+  @Get('adjustments')
+  async getAllAdjustments() {
+    return this.pointsService.getAdjustments();
+  }
+
+  @Post(':id/adjust-balance')
+  async adjustBalance(
+    @Param('id') id: string,
+    @Body() body: { newBalance: number; reason: string; operatorName: string },
+  ) {
+    return this.pointsService.adjustCashBalance(
+      id,
+      Number(body.newBalance),
+      body.reason,
+      body.operatorName,
+    );
+  }
+
   @Get(':id/expenses')
   async getExpenses(@Param('id') id: string) {
     return this.pointsService.getExpenses(id);

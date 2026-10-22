@@ -1,11 +1,10 @@
 export const COMPANY_INFO = {
-  name: "ADIJACINTO – COMÉRCIO GREAL E PRESTAÇÃO DE SERVIÇOS (SU), LDA.",
-  shortName: "ADIJACINTO",
+  shortName: "ADIJACINTO COMÉRCIO GERAL E PRESTAÇÃO DE SERVIÇO (SU), LDA",
   nif: "5001375962",
-  address: "Luanda, Município de Luanda, Distrito Urbano de Samba, Bairro Morro Bento, Rua e Casa s/nº, junto ao Imetro",
+  address: "Luanda, Município de Luanda, Bairro Morro Bento, Rua e Casa s/nº, junto ao Imetro",
   phone: "947 501 108 / 940 030 860",
-  email: "contacto@adijacinto.ao",
-  footerNotice: "Documento emitido para comprovação interna de recargas e serviços de telecomunicações/TV.",
+  email: "adijacinto.aj@gamil.com",
+  footerNotice: "Documento emitido para comprovação de recargas e serviços de telecomunicações/TV.",
 };
 
 export type Operator = "UNITEL" | "AFRICELL" | "ZAP" | "DSTV";

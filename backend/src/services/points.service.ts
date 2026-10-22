@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { SalePoint } from '../entities/sale-point.entity';
 import { Shift, ShiftStatus } from '../entities/shift.entity';
 import { CashExpense } from '../entities/cash-expense.entity';
+import { BalanceAdjustment, TargetType } from '../entities/balance-adjustment.entity';
 
 @Injectable()
 export class PointsService {
@@ -14,10 +15,56 @@ export class PointsService {
     private readonly shiftRepo: Repository<Shift>,
     @InjectRepository(CashExpense)
     private readonly expenseRepo: Repository<CashExpense>,
+    @InjectRepository(BalanceAdjustment)
+    private readonly adjustmentRepo: Repository<BalanceAdjustment>,
   ) {}
 
   async findAll() {
     return this.pointRepo.find({ order: { name: 'ASC' } });
+  }
+
+  // Ajustar Saldo com Histórico de Auditoria
+  async adjustCashBalance(
+    pointId: string,
+    newBalance: number,
+    reason: string,
+    operatorName: string,
+  ) {
+    const point = await this.pointRepo.findOneBy({ id: pointId });
+    if (!point) throw new Error('Ponto não encontrado');
+
+    const previousBalance = Number(point.currentCashBalance);
+    const targetBalance = Number(newBalance);
+    const diff = targetBalance - previousBalance;
+
+    point.currentCashBalance = targetBalance;
+    const savedPoint = await this.pointRepo.save(point);
+
+    const adjustment = this.adjustmentRepo.create({
+      targetType: TargetType.SALE_POINT,
+      targetId: point.id,
+      targetName: point.name,
+      previousBalance,
+      newBalance: targetBalance,
+      difference: diff,
+      reason: reason || 'Retificação de saldo em caixa',
+      adjustedBy: operatorName || 'Operador',
+    });
+    await this.adjustmentRepo.save(adjustment);
+
+    return { point: savedPoint, adjustment };
+  }
+
+  // Obter Histórico de Ajustes
+  async getAdjustments(pointId?: string) {
+    if (pointId) {
+      return this.adjustmentRepo.find({
+        where: { targetId: pointId },
+        order: { createdAt: 'DESC' },
+        take: 50,
+      });
+    }
+    return this.adjustmentRepo.find({ order: { createdAt: 'DESC' }, take: 100 });
   }
 
   // Criar novo Ponto de Venda
@@ -102,24 +149,42 @@ export class PointsService {
     const point = await this.pointRepo.findOneBy({ id: pointId });
     if (!point) throw new Error('Ponto não encontrado');
 
+    const calculatedCash = Number(point.currentCashBalance);
+    const declared = Number(declaredCash);
+    const difference = declared - calculatedCash;
+
     const openShift = await this.shiftRepo.findOne({
       where: { salePoint: { id: pointId }, status: ShiftStatus.OPEN },
       order: { openedAt: 'DESC' },
     });
 
+    let savedShift = null;
     if (openShift) {
       openShift.status = ShiftStatus.CLOSED;
       openShift.closedAt = new Date();
-      openShift.closingCashCalculated = Number(point.currentCashBalance);
-      openShift.closingCashDeclared = declaredCash;
-      await this.shiftRepo.save(openShift);
+      openShift.closingCashCalculated = calculatedCash;
+      openShift.closingCashDeclared = declared;
+      openShift.notes =
+        difference === 0
+          ? 'Caixa sem discrepâncias (Perfeito)'
+          : difference > 0
+          ? `Sobra de caixa de +${difference.toLocaleString('pt-AO')} Kz`
+          : `Quebra de caixa de ${difference.toLocaleString('pt-AO')} Kz`;
+      savedShift = await this.shiftRepo.save(openShift);
     }
 
     point.isOpen = false;
     point.currentOperatorName = null;
     await this.pointRepo.save(point);
 
-    return { success: true, point };
+    return {
+      success: true,
+      point,
+      shift: savedShift,
+      calculatedCash,
+      declaredCash: declared,
+      difference,
+    };
   }
 
   async seedDefaultPoints() {

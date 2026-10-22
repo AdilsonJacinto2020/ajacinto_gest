@@ -17,10 +17,18 @@ export class InvoicesService {
     private readonly walletsService: WalletsService,
   ) {}
 
-  async findAll() {
+  async findAll(salePointId?: string) {
+    if (salePointId) {
+      return this.invoiceRepo.find({
+        where: { salePoint: { id: salePointId } },
+        order: { createdAt: 'DESC' },
+        take: 100,
+        relations: ['items', 'salePoint'],
+      });
+    }
     return this.invoiceRepo.find({
       order: { createdAt: 'DESC' },
-      take: 50,
+      take: 100,
       relations: ['items', 'salePoint'],
     });
   }

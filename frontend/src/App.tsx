@@ -1,11 +1,21 @@
 import { useState, useEffect } from "react";
 import { Operator, INITIAL_PRODUCTS, CatalogItem, COMPANY_INFO } from "./constants/catalog";
-import { CartItem, SalePointState, WalletState, TransferRecord } from "./types";
+import {
+  CartItem,
+  SalePointState,
+  WalletState,
+  TransferRecord,
+  BalanceAdjustmentRecord,
+  SaleInvoiceRecord,
+} from "./types";
 import { OperatorTabs } from "./components/OperatorTabs";
 import { ProductCatalog } from "./components/ProductCatalog";
 import { CartDrawer } from "./components/CartDrawer";
 import { PointShiftManager } from "./components/PointShiftManager";
 import { ThermalReceipt } from "./components/ThermalReceipt";
+import { ShiftReportModal } from "./components/ShiftReportModal";
+import { ToastContainer, ToastMessage, ToastType } from "./components/Toast";
+import { ShiftCloseReport } from "./types";
 import { generateInvoicePDF, InvoicePrintData } from "./utils/pdfGenerator";
 import { Smartphone } from "lucide-react";
 
@@ -20,7 +30,7 @@ export default function App() {
       id: "pt-1",
       name: "Ponto Morro Bento (Sede)",
       location: "Bairro Morro Bento, junto ao Imetro",
-      currentCashBalance: 125000,
+      currentCashBalance: 0,
       isOpen: true,
       currentOperatorName: "Adilson Jacinto",
     },
@@ -28,7 +38,7 @@ export default function App() {
       id: "pt-2",
       name: "Ponto Balcão Imetro",
       location: "Rua do Imetro, Samba",
-      currentCashBalance: 45000,
+      currentCashBalance: 0,
       isOpen: false,
       currentOperatorName: null,
     },
@@ -36,13 +46,30 @@ export default function App() {
   const [activePointId, setActivePointId] = useState<string>("pt-1");
 
   const [wallets, setWallets] = useState<WalletState[]>([
-    { id: "w-1", type: "CAIXA_GERAL", name: "Caixa Geral (Empresa)", balance: 2500000 },
-    { id: "w-2", type: "MSELLER", name: "mSeller (Unitel)", balance: 480000 },
-    { id: "w-3", type: "AFRIMONEY", name: "Afrimoney (Africell)", balance: 320000 },
-    { id: "w-4", type: "TELPLAY_ZAP", name: "Telplay / ZAP / DStv", balance: 650000 },
+    { id: "w-1", type: "CAIXA_GERAL", name: "Caixa Geral (Empresa)", balance: 0 },
+    { id: "w-2", type: "MSELLER", name: "mSeller (Unitel)", balance: 0 },
+    { id: "w-3", type: "AFRIMONEY", name: "Afrimoney (Africell)", balance: 0 },
+    { id: "w-4", type: "TELPLAY_ZAP", name: "Telplay / ZAP / DStv", balance: 0 },
   ]);
 
   const [transfers, setTransfers] = useState<TransferRecord[]>([]);
+  const [adjustments, setAdjustments] = useState<BalanceAdjustmentRecord[]>([]);
+  const [invoices, setInvoices] = useState<SaleInvoiceRecord[]>([]);
+
+  // Sistema de Toasts Elegantes
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  const showToast = (title: string, description?: string, type: ToastType = "info") => {
+    const id = `toast-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    setToasts((prev) => [...prev, { id, title, description, type }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 4500);
+  };
+
+  const dismissToast = (id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  };
 
   // Criar novo Ponto de Venda
   const handleCreatePoint = async (
@@ -66,7 +93,7 @@ export default function App() {
       if (newPt?.id) {
         setPoints((prev) => [...prev, newPt]);
         setActivePointId(newPt.id);
-        alert(`Ponto "${name}" criado com sucesso!`);
+        showToast("Ponto Criado", `Ponto "${name}" configurado com sucesso!`, "success");
         return;
       }
     } catch (e) {
@@ -85,7 +112,7 @@ export default function App() {
     };
     setPoints((prev) => [...prev, newPt]);
     setActivePointId(newPt.id);
-    alert(`Ponto "${name}" criado com sucesso!`);
+    showToast("Ponto Criado", `Ponto "${name}" configurado com sucesso!`, "success");
   };
 
   // Atualizar / Renomear Ponto e alocar operador
@@ -121,7 +148,7 @@ export default function App() {
           : p
       )
     );
-    alert("Dados do ponto atualizados com sucesso!");
+    showToast("Ponto Atualizado", "Dados e responsável salvos com sucesso!", "success");
   };
 
   // Registar Saída / Despesa de Caixa no Ponto
@@ -155,7 +182,7 @@ export default function App() {
           : p
       )
     );
-    alert(`Saída de ${amount.toLocaleString("pt-AO")} Kz registada com sucesso!\nMotivo: ${reason}`);
+    showToast("Saída Registada", `Valor: ${amount.toLocaleString("pt-AO")} Kz\nMotivo: ${reason}`, "info");
   };
 
   // Carrinho e Fatura
@@ -166,9 +193,10 @@ export default function App() {
   const [paymentMethod, setPaymentMethod] = useState<"CASH" | "TPA" | "TRANSFER">("CASH");
 
   const [thermalData, setThermalData] = useState<InvoicePrintData | null>(null);
+  const [shiftReport, setShiftReport] = useState<ShiftCloseReport | null>(null);
   const [invoiceSeq, setInvoiceSeq] = useState<number>(1);
 
-  // Carrega pontos e carteiras do NestJS se a API estiver disponível
+  // Carrega pontos, carteiras, transferências, ajustes e faturas
   useEffect(() => {
     fetch(`${API_BASE}/points`)
       .then((res) => res.json())
@@ -188,6 +216,30 @@ export default function App() {
         }
       })
       .catch(() => console.log("Usando dados locais de carteiras"));
+
+    fetch(`${API_BASE}/transfers`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data)) setTransfers(data);
+      })
+      .catch(() => console.log("Usando dados locais de transferências"));
+
+    fetch(`${API_BASE}/points/adjustments`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data)) setAdjustments(data);
+      })
+      .catch(() => console.log("Ajustes offline"));
+
+    fetch(`${API_BASE}/invoices`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setInvoices(data);
+          setInvoiceSeq(data.length + 1);
+        }
+      })
+      .catch(() => console.log("Faturas offline"));
   }, []);
 
   const handleAddToCart = (product: CatalogItem, customPrice?: number) => {
@@ -260,20 +312,43 @@ export default function App() {
 
   const handleCloseShift = async (pointId: string, declaredCash: number) => {
     const point = points.find((p) => p.id === pointId);
+    let calculated = Number(point?.currentCashBalance || 0);
+
     try {
-      await fetch(`${API_BASE}/points/${pointId}/close`, {
+      const res = await fetch(`${API_BASE}/points/${pointId}/close`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ declaredCash }),
       });
+      const data = await res.json();
+      if (data?.calculatedCash !== undefined) {
+        calculated = Number(data.calculatedCash);
+      }
     } catch (e) {
       console.log("Modo offline");
     }
 
-    alert(
-      `Turno de ${point?.currentOperatorName} no ${point?.name} encerrado com sucesso!\nValor em Caixa Declarado: ${declaredCash.toLocaleString(
-        "pt-AO"
-      )} Kz`
+    const diff = declaredCash - calculated;
+
+    // Gerar relatório de fecho para exibição e impressão de comprovativo
+    const report: ShiftCloseReport = {
+      pointName: point?.name || "Ponto de Venda",
+      operatorName: point?.currentOperatorName || "Operador",
+      closedAt: new Date().toLocaleString("pt-AO"),
+      openingCash: 0,
+      calculatedCash: calculated,
+      declaredCash,
+      difference: diff,
+      totalSalesCash: Math.max(0, calculated),
+      totalExpenses: 0,
+    };
+
+    setShiftReport(report);
+
+    showToast(
+      diff === 0 ? "Turno Encerrado (Sem Quebra)" : diff > 0 ? "Sobra de Caixa Registada" : "Quebra de Caixa Registada",
+      `Operador: ${report.operatorName}\nDeclarado: ${declaredCash.toLocaleString("pt-AO")} Kz (Dif: ${diff.toLocaleString("pt-AO")} Kz)`,
+      diff === 0 ? "success" : "info"
     );
 
     setPoints((prev) =>
@@ -294,7 +369,8 @@ export default function App() {
     originName: string,
     destinationName: string,
     amount: number,
-    operator: string
+    operator: string,
+    reason?: string
   ) => {
     try {
       await fetch(`${API_BASE}/transfers`, {
@@ -305,6 +381,7 @@ export default function App() {
           destinationName,
           amount,
           transferredBy: operator,
+          reason,
         }),
       });
     } catch (e) {
@@ -319,23 +396,190 @@ export default function App() {
         amount,
         createdAt: new Date().toLocaleString("pt-AO"),
         transferredBy: operator,
+        reason,
       },
       ...prev,
     ]);
 
+    // Atualiza carteiras se for carteira
     setWallets((prev) =>
       prev.map((w) => {
         if (originName.includes(w.name) || w.name.includes(originName)) {
-          return { ...w, balance: Math.max(0, w.balance - amount) };
+          return { ...w, balance: Math.max(0, Number(w.balance) - amount) };
         }
         if (destinationName.includes(w.name) || w.name.includes(destinationName)) {
-          return { ...w, balance: w.balance + amount };
+          return { ...w, balance: Number(w.balance) + amount };
         }
         return w;
       })
     );
 
-    alert(`Transferência de ${amount.toLocaleString("pt-AO")} Kz realizada de [${originName}] para [${destinationName}]!`);
+    // Atualiza pontos se a origem ou destino for um ponto de venda
+    setPoints((prev) =>
+      prev.map((p) => {
+        if (originName === p.name) {
+          return { ...p, currentCashBalance: Math.max(0, Number(p.currentCashBalance) - amount) };
+        }
+        if (destinationName === p.name) {
+          return { ...p, currentCashBalance: Number(p.currentCashBalance) + amount };
+        }
+        return p;
+      })
+    );
+
+    showToast(
+      "Transferência Efetuada",
+      `Montante: ${amount.toLocaleString("pt-AO")} Kz\n[${originName}] ➔ [${destinationName}]`,
+      "success"
+    );
+  };
+
+  // Ajustar Saldo de Ponto com Histórico
+  const handleAdjustPointBalance = async (
+    pointId: string,
+    newBalance: number,
+    reason: string,
+    operator: string
+  ) => {
+    const pt = points.find((p) => p.id === pointId);
+    const prevBal = Number(pt?.currentCashBalance || 0);
+
+    try {
+      await fetch(`${API_BASE}/points/${pointId}/adjust-balance`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          newBalance,
+          reason,
+          operatorName: operator,
+        }),
+      });
+    } catch (e) {
+      console.log("Ajuste offline");
+    }
+
+    setPoints((prev) =>
+      prev.map((p) => (p.id === pointId ? { ...p, currentCashBalance: newBalance } : p))
+    );
+
+    setAdjustments((prev) => [
+      {
+        id: `adj-${Date.now()}`,
+        targetType: "SALE_POINT",
+        targetId: pointId,
+        targetName: pt?.name || "Ponto",
+        previousBalance: prevBal,
+        newBalance,
+        difference: newBalance - prevBal,
+        reason,
+        adjustedBy: operator,
+        createdAt: new Date().toLocaleString("pt-AO"),
+      },
+      ...prev,
+    ]);
+
+    showToast(
+      "Saldo Retificado",
+      `Ponto: "${pt?.name}"\nNovo Saldo: ${newBalance.toLocaleString("pt-AO")} Kz\nMotivo: ${reason}`,
+      "success"
+    );
+  };
+
+  // Ajustar Saldo de Carteira com Histórico
+  const handleAdjustWalletBalance = async (
+    walletId: string,
+    newBalance: number,
+    reason: string,
+    operator: string
+  ) => {
+    const wl = wallets.find((w) => w.id === walletId);
+    const prevBal = Number(wl?.balance || 0);
+
+    try {
+      await fetch(`${API_BASE}/wallets/${walletId}/adjust-balance`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          newBalance,
+          reason,
+          operatorName: operator,
+        }),
+      });
+    } catch (e) {
+      console.log("Ajuste offline");
+    }
+
+    setWallets((prev) =>
+      prev.map((w) => (w.id === walletId ? { ...w, balance: newBalance } : w))
+    );
+
+    setAdjustments((prev) => [
+      {
+        id: `adj-${Date.now()}`,
+        targetType: "WALLET",
+        targetId: walletId,
+        targetName: wl?.name || "Carteira",
+        previousBalance: prevBal,
+        newBalance,
+        difference: newBalance - prevBal,
+        reason,
+        adjustedBy: operator,
+        createdAt: new Date().toLocaleString("pt-AO"),
+      },
+      ...prev,
+    ]);
+
+    showToast(
+      "Carteira Retificada",
+      `Conta: "${wl?.name}"\nNovo Saldo: ${newBalance.toLocaleString("pt-AO")} Kz\nMotivo: ${reason}`,
+      "success"
+    );
+  };
+
+  // Reinicialização Geral de Dados
+  const handleResetSystemData = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/admin/reset-data`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          operatorName: "Administrador",
+          reason: "Reinicialização manual de saldos e histórico",
+        }),
+      });
+      const data = await res.json();
+      if (data?.points) {
+        setPoints(data.points);
+      } else {
+        setPoints((prev) =>
+          prev.map((p) => ({ ...p, currentCashBalance: 0, isOpen: false, currentOperatorName: null }))
+        );
+      }
+
+      if (data?.wallets) {
+        setWallets(data.wallets);
+      } else {
+        setWallets((prev) => prev.map((w) => ({ ...w, balance: 0 })));
+      }
+    } catch (e) {
+      console.log("Reset em modo offline");
+      setPoints((prev) =>
+        prev.map((p) => ({ ...p, currentCashBalance: 0, isOpen: false, currentOperatorName: null }))
+      );
+      setWallets((prev) => prev.map((w) => ({ ...w, balance: 0 })));
+    }
+
+    setInvoices([]);
+    setTransfers([]);
+    setAdjustments([]);
+    setInvoiceSeq(1);
+    setCart([]);
+
+    showToast(
+      "Sistema Reinicializado",
+      "Todos os saldos foram zerados (0 Kz) e os históricos limpos com sucesso!",
+      "success"
+    );
   };
 
   const handleCheckout = async () => {
@@ -343,7 +587,11 @@ export default function App() {
 
     const missingRecipient = cart.find((it) => !it.recipient.trim());
     if (missingRecipient) {
-      alert(`Por favor preencha o número do telemóvel ou cartão para "${missingRecipient.name}"!`);
+      showToast(
+        "Destinatário em Falta",
+        `Por favor preencha o número do telemóvel ou cartão para "${missingRecipient.name}"!`,
+        "error"
+      );
       return;
     }
 
@@ -375,6 +623,23 @@ export default function App() {
       total: subtotal,
     };
 
+    const newInvoiceRecord: SaleInvoiceRecord = {
+      id: `inv-${Date.now()}`,
+      invoiceNumber: printData.invoiceNumber,
+      clientName: printData.clientName,
+      clientNif: printData.clientNif,
+      paymentMethod: printData.paymentMethod,
+      total: printData.total,
+      operatorName: printData.operatorName,
+      createdAt: printData.date,
+      salePoint: {
+        id: currentPoint.id,
+        name: currentPoint.name,
+      },
+      items: printData.items,
+    };
+    setInvoices((prev) => [newInvoiceRecord, ...prev]);
+
     try {
       await fetch(`${API_BASE}/invoices`, {
         method: "POST",
@@ -393,8 +658,8 @@ export default function App() {
       console.log("Venda em modo local");
     }
 
-    generateInvoicePDF(printData);
     setThermalData(printData);
+    showToast("Venda Registada com Sucesso", `Fatura ${printData.invoiceNumber} emitida!`, "success");
 
     // Abate nas carteiras
     cart.forEach((item) => {
@@ -447,20 +712,17 @@ export default function App() {
               />
             </div>
             <div className="hidden md:block pl-3 border-l border-slate-200">
-              <span className="text-xs font-semibold text-slate-800 block">
-                {COMPANY_INFO.name}
-              </span>
               <span className="text-[11px] text-slate-500">
                 NIF: {COMPANY_INFO.nif} | {COMPANY_INFO.address}
               </span>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          {/* <div className="flex items-center gap-2">
             <span className="text-[11px] font-bold bg-brand-50 text-brand-700 border border-brand-200 px-3 py-1.5 rounded-full flex items-center gap-1.5 shadow-xs">
               <Smartphone size={13} /> Mobile-First React
             </span>
-          </div>
+          </div> */}
         </div>
       </header>
 
@@ -469,6 +731,8 @@ export default function App() {
           points={points}
           wallets={wallets}
           transfers={transfers}
+          adjustments={adjustments}
+          invoices={invoices}
           activePointId={activePointId}
           onSelectPoint={setActivePointId}
           onOpenShift={handleOpenShift}
@@ -477,6 +741,10 @@ export default function App() {
           onCreatePoint={handleCreatePoint}
           onUpdatePoint={handleUpdatePoint}
           onAddExpense={handleAddExpense}
+          onAdjustPointBalance={handleAdjustPointBalance}
+          onAdjustWalletBalance={handleAdjustWalletBalance}
+          onResetSystemData={handleResetSystemData}
+          onNotify={showToast}
         />
 
         <div className="pt-2">
@@ -527,8 +795,28 @@ export default function App() {
         <ThermalReceipt
           data={thermalData}
           onClose={() => setThermalData(null)}
+          onUpdateDate={(newDate) => {
+            setThermalData((prev) => (prev ? { ...prev, date: newDate } : null));
+            setInvoices((prev) =>
+              prev.map((inv) =>
+                inv.invoiceNumber === thermalData.invoiceNumber
+                  ? { ...inv, createdAt: newDate }
+                  : inv
+              )
+            );
+          }}
+          onShowToast={showToast}
         />
       )}
+
+      {shiftReport && (
+        <ShiftReportModal
+          report={shiftReport}
+          onClose={() => setShiftReport(null)}
+        />
+      )}
+
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </main>
   );
 }

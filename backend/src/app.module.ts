@@ -9,11 +9,13 @@ import { Invoice } from './entities/invoice.entity';
 import { InvoiceItem } from './entities/invoice-item.entity';
 import { User, UserRole } from './entities/user.entity';
 import { CashExpense } from './entities/cash-expense.entity';
+import { BalanceAdjustment } from './entities/balance-adjustment.entity';
 
 import { PointsController } from './controllers/points.controller';
 import { InvoicesController } from './controllers/invoices.controller';
 import { TransfersController } from './controllers/transfers.controller';
 import { WalletsController } from './controllers/wallets.controller';
+import { AdminController } from './controllers/admin.controller';
 
 import { PointsService } from './services/points.service';
 import { InvoicesService } from './services/invoices.service';
@@ -45,6 +47,7 @@ import { WalletsService } from './services/wallets.service';
       InvoiceItem,
       User,
       CashExpense,
+      BalanceAdjustment,
     ]),
   ],
   controllers: [
@@ -52,6 +55,7 @@ import { WalletsService } from './services/wallets.service';
     InvoicesController,
     TransfersController,
     WalletsController,
+    AdminController,
   ],
   providers: [PointsService, InvoicesService, TransfersService, WalletsService],
 })
