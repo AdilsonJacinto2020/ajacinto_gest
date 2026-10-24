@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Operator, INITIAL_PRODUCTS, CatalogItem, COMPANY_INFO } from "./constants/catalog";
 import {
   CartItem,
@@ -19,39 +19,31 @@ import { ShiftCloseReport } from "./types";
 import { generateInvoicePDF, InvoicePrintData } from "./utils/pdfGenerator";
 import { Smartphone } from "lucide-react";
 
-const API_BASE = "http://localhost:4000";
+import { api, API_BASE } from "./api";
+const PM_LABEL: Record<string, string> = {
+  CASH: "Dinheiro",
+  TPA: "Multicaixa",
+  TRANSFER: "Transferência Express",
+};
+
+const fmtDate = (v?: string) => {
+  if (!v) return "";
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? v : d.toLocaleString("pt-AO");
+};
 
 export default function App() {
   const [activeOperator, setActiveOperator] = useState<Operator>("UNITEL");
   const [catalog] = useState<CatalogItem[]>(INITIAL_PRODUCTS);
 
-  const [points, setPoints] = useState<SalePointState[]>([
-    {
-      id: "pt-1",
-      name: "Ponto Morro Bento (Sede)",
-      location: "Bairro Morro Bento, junto ao Imetro",
-      currentCashBalance: 0,
-      isOpen: true,
-      currentOperatorName: "Adilson Jacinto",
-    },
-    {
-      id: "pt-2",
-      name: "Ponto Balcão Imetro",
-      location: "Rua do Imetro, Samba",
-      currentCashBalance: 0,
-      isOpen: false,
-      currentOperatorName: null,
-    },
-  ]);
-  const [activePointId, setActivePointId] = useState<string>("pt-1");
-
-  const [wallets, setWallets] = useState<WalletState[]>([
-    { id: "w-1", type: "CAIXA_GERAL", name: "Caixa Geral (Empresa)", balance: 0 },
-    { id: "w-2", type: "MSELLER", name: "mSeller (Unitel)", balance: 0 },
-    { id: "w-3", type: "AFRIMONEY", name: "Afrimoney (Africell)", balance: 0 },
-    { id: "w-4", type: "TELPLAY_ZAP", name: "Telplay / ZAP / DStv", balance: 0 },
-  ]);
-
+  // Os dados vêm SEMPRE da base de dados, através do servidor.
+  // Já não existem pontos, carteiras ou faturas "de demonstração" guardados só no telemóvel.
+  const [points, setPoints] = useState<SalePointState[]>([]);
+  const [activePointId, setActivePointId] = useState<string>("");
+  const [wallets, setWallets] = useState<WalletState[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [offline, setOffline] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [transfers, setTransfers] = useState<TransferRecord[]>([]);
   const [adjustments, setAdjustments] = useState<BalanceAdjustmentRecord[]>([]);
   const [invoices, setInvoices] = useState<SaleInvoiceRecord[]>([]);
@@ -71,6 +63,62 @@ export default function App() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   };
 
+  const fail = (title: string, e: unknown) =>
+    showToast(title, e instanceof Error ? e.message : "Erro inesperado.", "error");
+
+  // Lê tudo da base de dados. É chamado ao abrir, ao voltar à app e depois de cada gravação,
+  // por isso o que se vê no ecrã é sempre o que está guardado.
+  const loadAll = useCallback(async () => {
+    try {
+      const [pts, wls, trs, adj, inv] = await Promise.all([
+        api<SalePointState[]>("/points"),
+        api<WalletState[]>("/wallets"),
+        api<TransferRecord[]>("/transfers"),
+        api<BalanceAdjustmentRecord[]>("/points/adjustments"),
+        api<SaleInvoiceRecord[]>("/invoices"),
+      ]);
+      setPoints(pts.map((p) => ({ ...p, currentCashBalance: Number(p.currentCashBalance) })));
+      setWallets(wls.map((w) => ({ ...w, balance: Number(w.balance) })));
+      setTransfers(trs.map((t) => ({ ...t, amount: Number(t.amount), createdAt: fmtDate(t.createdAt) })));
+      setAdjustments(
+        adj.map((a) => ({
+          ...a,
+          previousBalance: Number(a.previousBalance),
+          newBalance: Number(a.newBalance),
+          difference: Number(a.difference),
+          createdAt: fmtDate(a.createdAt),
+        }))
+      );
+      setInvoices(
+        inv.map((i) => ({
+          ...i,
+          total: Number(i.total),
+          paymentMethod: PM_LABEL[i.paymentMethod] ?? i.paymentMethod,
+          createdAt: fmtDate(i.createdAt),
+          items: i.items?.map((it) => ({
+            ...it,
+            unitPrice: Number(it.unitPrice),
+            totalPrice: Number(it.totalPrice),
+          })),
+        }))
+      );
+      setActivePointId((cur) => (pts.some((p) => p.id === cur) ? cur : pts[0]?.id ?? ""));
+      setOffline(false);
+    } catch {
+      setOffline(true);
+    } finally {
+      setLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadAll();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") loadAll();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [loadAll]);
   // Criar novo Ponto de Venda
   const handleCreatePoint = async (
     name: string,
@@ -79,40 +127,15 @@ export default function App() {
     initialCash: number
   ) => {
     try {
-      const res = await fetch(`${API_BASE}/points`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name,
-          location,
-          assignedOperatorName: assignedOperator,
-          initialCash,
-        }),
+      const pt = await api<SalePointState>("/points", {
+        body: { name, location, assignedOperatorName: assignedOperator, initialCash },
       });
-      const newPt = await res.json();
-      if (newPt?.id) {
-        setPoints((prev) => [...prev, newPt]);
-        setActivePointId(newPt.id);
-        showToast("Ponto Criado", `Ponto "${name}" configurado com sucesso!`, "success");
-        return;
-      }
+      await loadAll();
+      setActivePointId(pt.id);
+      showToast("Ponto Criado", `Ponto "${name}" guardado na base de dados!`, "success");
     } catch (e) {
-      console.log("Modo local");
+      fail("Não foi possível criar o ponto", e);
     }
-
-    // Fallback local
-    const newPt: SalePointState = {
-      id: `pt-${Date.now()}`,
-      name,
-      location: location || "Luanda",
-      assignedOperatorName: assignedOperator || null,
-      currentCashBalance: initialCash || 0,
-      isOpen: false,
-      currentOperatorName: null,
-    };
-    setPoints((prev) => [...prev, newPt]);
-    setActivePointId(newPt.id);
-    showToast("Ponto Criado", `Ponto "${name}" configurado com sucesso!`, "success");
   };
 
   // Atualizar / Renomear Ponto e alocar operador
@@ -123,32 +146,14 @@ export default function App() {
     assignedOperator: string
   ) => {
     try {
-      await fetch(`${API_BASE}/points/${pointId}/update`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name,
-          location,
-          assignedOperatorName: assignedOperator,
-        }),
+      await api(`/points/${pointId}/update`, {
+        body: { name, location, assignedOperatorName: assignedOperator },
       });
+      await loadAll();
+      showToast("Ponto Atualizado", "Dados e responsável guardados com sucesso!", "success");
     } catch (e) {
-      console.log("Modo local");
+      fail("Não foi possível atualizar o ponto", e);
     }
-
-    setPoints((prev) =>
-      prev.map((p) =>
-        p.id === pointId
-          ? {
-              ...p,
-              name,
-              location,
-              assignedOperatorName: assignedOperator,
-            }
-          : p
-      )
-    );
-    showToast("Ponto Atualizado", "Dados e responsável salvos com sucesso!", "success");
   };
 
   // Registar Saída / Despesa de Caixa no Ponto
@@ -159,32 +164,15 @@ export default function App() {
     operator: string
   ) => {
     try {
-      await fetch(`${API_BASE}/points/${pointId}/expenses`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          amount,
-          reason,
-          operatorName: operator,
-        }),
+      await api(`/points/${pointId}/expenses`, {
+        body: { amount, reason, operatorName: operator },
       });
+      await loadAll();
+      showToast("Saída Registada", `Valor: ${amount.toLocaleString("pt-AO")} Kz\nMotivo: ${reason}`, "info");
     } catch (e) {
-      console.log("Modo local");
+      fail("Não foi possível registar a saída", e);
     }
-
-    setPoints((prev) =>
-      prev.map((p) =>
-        p.id === pointId
-          ? {
-              ...p,
-              currentCashBalance: Math.max(0, Number(p.currentCashBalance) - amount),
-            }
-          : p
-      )
-    );
-    showToast("Saída Registada", `Valor: ${amount.toLocaleString("pt-AO")} Kz\nMotivo: ${reason}`, "info");
   };
-
   // Carrinho e Fatura
   const [cart, setCart] = useState<CartItem[]>([]);
   const [clientName, setClientName] = useState<string>("");
@@ -194,53 +182,6 @@ export default function App() {
 
   const [thermalData, setThermalData] = useState<InvoicePrintData | null>(null);
   const [shiftReport, setShiftReport] = useState<ShiftCloseReport | null>(null);
-  const [invoiceSeq, setInvoiceSeq] = useState<number>(1);
-
-  // Carrega pontos, carteiras, transferências, ajustes e faturas
-  useEffect(() => {
-    fetch(`${API_BASE}/points`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (Array.isArray(data) && data.length > 0) {
-          setPoints(data);
-          setActivePointId(data[0].id);
-        }
-      })
-      .catch(() => console.log("Usando dados locais de pontos (API offline)"));
-
-    fetch(`${API_BASE}/wallets`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (Array.isArray(data) && data.length > 0) {
-          setWallets(data);
-        }
-      })
-      .catch(() => console.log("Usando dados locais de carteiras"));
-
-    fetch(`${API_BASE}/transfers`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (Array.isArray(data)) setTransfers(data);
-      })
-      .catch(() => console.log("Usando dados locais de transferências"));
-
-    fetch(`${API_BASE}/points/adjustments`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (Array.isArray(data)) setAdjustments(data);
-      })
-      .catch(() => console.log("Ajustes offline"));
-
-    fetch(`${API_BASE}/invoices`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (Array.isArray(data)) {
-          setInvoices(data);
-          setInvoiceSeq(data.length + 1);
-        }
-      })
-      .catch(() => console.log("Faturas offline"));
-  }, []);
 
   const handleAddToCart = (product: CatalogItem, customPrice?: number) => {
     const finalPrice = customPrice !== undefined && customPrice > 0 ? customPrice : product.price;
@@ -286,83 +227,45 @@ export default function App() {
 
   const handleOpenShift = async (pointId: string, operatorName: string, openingCash: number) => {
     try {
-      await fetch(`${API_BASE}/points/${pointId}/open`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ operatorName, openingCash }),
-      });
+      await api(`/points/${pointId}/open`, { body: { operatorName, openingCash } });
+      await loadAll();
+      showToast("Turno Aberto", `Operador: ${operatorName}`, "success");
     } catch (e) {
-      console.log("Modo offline");
+      fail("Não foi possível abrir o turno", e);
     }
-
-    setPoints((prev) =>
-      prev.map((p) => {
-        if (p.id === pointId) {
-          return {
-            ...p,
-            isOpen: true,
-            currentOperatorName: operatorName,
-            currentCashBalance: openingCash,
-          };
-        }
-        return p;
-      })
-    );
   };
 
   const handleCloseShift = async (pointId: string, declaredCash: number) => {
     const point = points.find((p) => p.id === pointId);
-    let calculated = Number(point?.currentCashBalance || 0);
 
     try {
-      const res = await fetch(`${API_BASE}/points/${pointId}/close`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ declaredCash }),
-      });
-      const data = await res.json();
-      if (data?.calculatedCash !== undefined) {
-        calculated = Number(data.calculatedCash);
-      }
+      const data = await api<any>(`/points/${pointId}/close`, { body: { declaredCash } });
+      const calculated = Number(data?.calculatedCash ?? point?.currentCashBalance ?? 0);
+      const diff = declaredCash - calculated;
+
+      // Gerar relatório de fecho para exibição e impressão de comprovativo
+      const report: ShiftCloseReport = {
+        pointName: point?.name || "Ponto de Venda",
+        operatorName: point?.currentOperatorName || "Operador",
+        closedAt: new Date().toLocaleString("pt-AO"),
+        openingCash: Number(data?.shift?.openingCash ?? 0),
+        calculatedCash: calculated,
+        declaredCash,
+        difference: diff,
+        totalSalesCash: Math.max(0, calculated),
+        totalExpenses: 0,
+      };
+
+      setShiftReport(report);
+      showToast(
+        diff === 0 ? "Turno Encerrado (Sem Quebra)" : diff > 0 ? "Sobra de Caixa Registada" : "Quebra de Caixa Registada",
+        `Operador: ${report.operatorName}\nDeclarado: ${declaredCash.toLocaleString("pt-AO")} Kz (Dif: ${diff.toLocaleString("pt-AO")} Kz)`,
+        diff === 0 ? "success" : "info"
+      );
+      await loadAll();
     } catch (e) {
-      console.log("Modo offline");
+      fail("Não foi possível encerrar o turno", e);
     }
-
-    const diff = declaredCash - calculated;
-
-    // Gerar relatório de fecho para exibição e impressão de comprovativo
-    const report: ShiftCloseReport = {
-      pointName: point?.name || "Ponto de Venda",
-      operatorName: point?.currentOperatorName || "Operador",
-      closedAt: new Date().toLocaleString("pt-AO"),
-      openingCash: 0,
-      calculatedCash: calculated,
-      declaredCash,
-      difference: diff,
-      totalSalesCash: Math.max(0, calculated),
-      totalExpenses: 0,
-    };
-
-    setShiftReport(report);
-
-    showToast(
-      diff === 0 ? "Turno Encerrado (Sem Quebra)" : diff > 0 ? "Sobra de Caixa Registada" : "Quebra de Caixa Registada",
-      `Operador: ${report.operatorName}\nDeclarado: ${declaredCash.toLocaleString("pt-AO")} Kz (Dif: ${diff.toLocaleString("pt-AO")} Kz)`,
-      diff === 0 ? "success" : "info"
-    );
-
-    setPoints((prev) =>
-      prev.map((p) => {
-        if (p.id === pointId) {
-          return {
-            ...p,
-            isOpen: false,
-            currentOperatorName: null,
-          };
-        }
-        return p;
-      })
-    );
   };
 
   const handleTransferBalance = async (
@@ -373,65 +276,18 @@ export default function App() {
     reason?: string
   ) => {
     try {
-      await fetch(`${API_BASE}/transfers`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          originName,
-          destinationName,
-          amount,
-          transferredBy: operator,
-          reason,
-        }),
+      await api("/transfers", {
+        body: { originName, destinationName, amount, transferredBy: operator, reason },
       });
+      await loadAll();
+      showToast(
+        "Transferência Efetuada",
+        `Montante: ${amount.toLocaleString("pt-AO")} Kz\n[${originName}] ➔ [${destinationName}]`,
+        "success"
+      );
     } catch (e) {
-      console.log("Transferência offline");
+      fail("Transferência não efetuada", e);
     }
-
-    setTransfers((prev) => [
-      {
-        id: `tr-${Date.now()}`,
-        originName,
-        destinationName,
-        amount,
-        createdAt: new Date().toLocaleString("pt-AO"),
-        transferredBy: operator,
-        reason,
-      },
-      ...prev,
-    ]);
-
-    // Atualiza carteiras se for carteira
-    setWallets((prev) =>
-      prev.map((w) => {
-        if (originName.includes(w.name) || w.name.includes(originName)) {
-          return { ...w, balance: Math.max(0, Number(w.balance) - amount) };
-        }
-        if (destinationName.includes(w.name) || w.name.includes(destinationName)) {
-          return { ...w, balance: Number(w.balance) + amount };
-        }
-        return w;
-      })
-    );
-
-    // Atualiza pontos se a origem ou destino for um ponto de venda
-    setPoints((prev) =>
-      prev.map((p) => {
-        if (originName === p.name) {
-          return { ...p, currentCashBalance: Math.max(0, Number(p.currentCashBalance) - amount) };
-        }
-        if (destinationName === p.name) {
-          return { ...p, currentCashBalance: Number(p.currentCashBalance) + amount };
-        }
-        return p;
-      })
-    );
-
-    showToast(
-      "Transferência Efetuada",
-      `Montante: ${amount.toLocaleString("pt-AO")} Kz\n[${originName}] ➔ [${destinationName}]`,
-      "success"
-    );
   };
 
   // Ajustar Saldo de Ponto com Histórico
@@ -442,47 +298,19 @@ export default function App() {
     operator: string
   ) => {
     const pt = points.find((p) => p.id === pointId);
-    const prevBal = Number(pt?.currentCashBalance || 0);
-
     try {
-      await fetch(`${API_BASE}/points/${pointId}/adjust-balance`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          newBalance,
-          reason,
-          operatorName: operator,
-        }),
+      await api(`/points/${pointId}/adjust-balance`, {
+        body: { newBalance, reason, operatorName: operator },
       });
+      await loadAll();
+      showToast(
+        "Saldo Retificado",
+        `Ponto: "${pt?.name}"\nNovo Saldo: ${newBalance.toLocaleString("pt-AO")} Kz\nMotivo: ${reason}`,
+        "success"
+      );
     } catch (e) {
-      console.log("Ajuste offline");
+      fail("Não foi possível retificar o saldo", e);
     }
-
-    setPoints((prev) =>
-      prev.map((p) => (p.id === pointId ? { ...p, currentCashBalance: newBalance } : p))
-    );
-
-    setAdjustments((prev) => [
-      {
-        id: `adj-${Date.now()}`,
-        targetType: "SALE_POINT",
-        targetId: pointId,
-        targetName: pt?.name || "Ponto",
-        previousBalance: prevBal,
-        newBalance,
-        difference: newBalance - prevBal,
-        reason,
-        adjustedBy: operator,
-        createdAt: new Date().toLocaleString("pt-AO"),
-      },
-      ...prev,
-    ]);
-
-    showToast(
-      "Saldo Retificado",
-      `Ponto: "${pt?.name}"\nNovo Saldo: ${newBalance.toLocaleString("pt-AO")} Kz\nMotivo: ${reason}`,
-      "success"
-    );
   };
 
   // Ajustar Saldo de Carteira com Histórico
@@ -493,97 +321,55 @@ export default function App() {
     operator: string
   ) => {
     const wl = wallets.find((w) => w.id === walletId);
-    const prevBal = Number(wl?.balance || 0);
-
     try {
-      await fetch(`${API_BASE}/wallets/${walletId}/adjust-balance`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          newBalance,
-          reason,
-          operatorName: operator,
-        }),
+      await api(`/wallets/${walletId}/adjust-balance`, {
+        body: { newBalance, reason, operatorName: operator },
       });
+      await loadAll();
+      showToast(
+        "Carteira Retificada",
+        `Conta: "${wl?.name}"\nNovo Saldo: ${newBalance.toLocaleString("pt-AO")} Kz\nMotivo: ${reason}`,
+        "success"
+      );
     } catch (e) {
-      console.log("Ajuste offline");
+      fail("Não foi possível retificar a carteira", e);
     }
-
-    setWallets((prev) =>
-      prev.map((w) => (w.id === walletId ? { ...w, balance: newBalance } : w))
-    );
-
-    setAdjustments((prev) => [
-      {
-        id: `adj-${Date.now()}`,
-        targetType: "WALLET",
-        targetId: walletId,
-        targetName: wl?.name || "Carteira",
-        previousBalance: prevBal,
-        newBalance,
-        difference: newBalance - prevBal,
-        reason,
-        adjustedBy: operator,
-        createdAt: new Date().toLocaleString("pt-AO"),
-      },
-      ...prev,
-    ]);
-
-    showToast(
-      "Carteira Retificada",
-      `Conta: "${wl?.name}"\nNovo Saldo: ${newBalance.toLocaleString("pt-AO")} Kz\nMotivo: ${reason}`,
-      "success"
-    );
   };
 
   // Reinicialização Geral de Dados
+  // Só acontece a pedido explícito: confirmação "LIMPAR" (no ecrã) + chave de administrador
+  // (definida no servidor em ADMIN_RESET_KEY). Sem a chave, o servidor recusa.
   const handleResetSystemData = async () => {
+    const key = window.prompt(
+      "REINICIAR TODOS OS DADOS\n\nIntroduza a chave de administrador (ADMIN_RESET_KEY) para confirmar.\nCancele para não apagar nada."
+    );
+    if (!key) {
+      showToast("Reinicialização Cancelada", "Nada foi apagado.", "info");
+      return;
+    }
     try {
-      const res = await fetch(`${API_BASE}/admin/reset-data`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      await api("/admin/reset-data", {
+        headers: { "x-admin-key": key },
+        body: {
+          confirm: "LIMPAR",
           operatorName: "Administrador",
           reason: "Reinicialização manual de saldos e histórico",
-        }),
+        },
       });
-      const data = await res.json();
-      if (data?.points) {
-        setPoints(data.points);
-      } else {
-        setPoints((prev) =>
-          prev.map((p) => ({ ...p, currentCashBalance: 0, isOpen: false, currentOperatorName: null }))
-        );
-      }
-
-      if (data?.wallets) {
-        setWallets(data.wallets);
-      } else {
-        setWallets((prev) => prev.map((w) => ({ ...w, balance: 0 })));
-      }
-    } catch (e) {
-      console.log("Reset em modo offline");
-      setPoints((prev) =>
-        prev.map((p) => ({ ...p, currentCashBalance: 0, isOpen: false, currentOperatorName: null }))
+      setCart([]);
+      await loadAll();
+      showToast(
+        "Sistema Reinicializado",
+        "Saldos zerados (0 Kz), históricos limpos e numeração de faturas reiniciada.",
+        "success"
       );
-      setWallets((prev) => prev.map((w) => ({ ...w, balance: 0 })));
+    } catch (e) {
+      fail("Reinicialização recusada", e);
     }
-
-    setInvoices([]);
-    setTransfers([]);
-    setAdjustments([]);
-    setInvoiceSeq(1);
-    setCart([]);
-
-    showToast(
-      "Sistema Reinicializado",
-      "Todos os saldos foram zerados (0 Kz) e os históricos limpos com sucesso!",
-      "success"
-    );
   };
 
   const handleCheckout = async () => {
-    if (cart.length === 0) return;
+    if (cart.length === 0 || saving) return;
 
     const missingRecipient = cart.find((it) => !it.recipient.trim());
     if (missingRecipient) {
@@ -596,105 +382,69 @@ export default function App() {
     }
 
     const currentPoint = points.find((p) => p.id === activePointId) || points[0];
+    if (!currentPoint) {
+      showToast("Sem Ponto de Venda", "Não há ponto de venda carregado. Verifique a ligação ao servidor.", "error");
+      return;
+    }
+
     const subtotal = cart.reduce((acc, it) => acc + it.price * it.quantity, 0);
-    const invoiceNumber = `FR 2026/${String(invoiceSeq).padStart(4, "0")}`;
-
-    const printData: InvoicePrintData = {
-      invoiceNumber,
-      date: new Date().toLocaleString("pt-AO"),
-      clientName: clientName.trim() || "Consumidor Final",
-      clientNif: clientNif.trim() || undefined,
-      clientPhone: clientPhone.trim() || undefined,
-      paymentMethod:
-        paymentMethod === "CASH" ? "Dinheiro" : paymentMethod === "TPA" ? "Multicaixa" : "Transferência Express",
-      operatorName: currentPoint.currentOperatorName || "Operador",
-      pointName: currentPoint.name,
-      items: cart.map((it) => ({
-        operator: it.operator,
-        productName: it.name,
-        recipient: it.recipient,
-        quantity: it.quantity,
-        unitPrice: it.price,
-        totalPrice: it.price * it.quantity,
-      })),
-      subtotal,
-      taxRate: 0,
-      taxAmount: 0,
-      total: subtotal,
-    };
-
-    const newInvoiceRecord: SaleInvoiceRecord = {
-      id: `inv-${Date.now()}`,
-      invoiceNumber: printData.invoiceNumber,
-      clientName: printData.clientName,
-      clientNif: printData.clientNif,
-      paymentMethod: printData.paymentMethod,
-      total: printData.total,
-      operatorName: printData.operatorName,
-      createdAt: printData.date,
-      salePoint: {
-        id: currentPoint.id,
-        name: currentPoint.name,
-      },
-      items: printData.items,
-    };
-    setInvoices((prev) => [newInvoiceRecord, ...prev]);
-
+    setSaving(true);
     try {
-      await fetch(`${API_BASE}/invoices`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          clientName: printData.clientName,
-          clientNif: printData.clientNif,
-          clientPhone: printData.clientPhone,
+      // A fatura só existe depois de o servidor a gravar. O número vem da base de dados.
+      const saved = await api<any>("/invoices", {
+        body: {
+          clientName: clientName.trim() || "Consumidor Final",
+          clientNif: clientNif.trim() || undefined,
+          clientPhone: clientPhone.trim() || undefined,
           paymentMethod,
           salePointId: currentPoint.id,
-          operatorName: printData.operatorName,
-          items: cart,
-        }),
+          operatorName: currentPoint.currentOperatorName || "Operador",
+          items: cart.map((it) => ({
+            operator: it.operator,
+            name: it.name,
+            recipient: it.recipient.trim(),
+            quantity: it.quantity,
+            price: it.price,
+          })),
+        },
       });
+
+      const printData: InvoicePrintData = {
+        invoiceNumber: saved.invoiceNumber,
+        date: fmtDate(saved.createdAt),
+        clientName: saved.clientName || "Consumidor Final",
+        clientNif: clientNif.trim() || undefined,
+        clientPhone: clientPhone.trim() || undefined,
+        paymentMethod: PM_LABEL[paymentMethod] ?? paymentMethod,
+        operatorName: saved.operatorName || "Operador",
+        pointName: currentPoint.name,
+        items: cart.map((it) => ({
+          operator: it.operator,
+          productName: it.name,
+          recipient: it.recipient.trim(),
+          quantity: it.quantity,
+          unitPrice: it.price,
+          totalPrice: it.price * it.quantity,
+        })),
+        subtotal,
+        taxRate: 0,
+        taxAmount: 0,
+        total: Number(saved.total ?? subtotal),
+      };
+
+      setThermalData(printData);
+      showToast("Venda Registada com Sucesso", `Fatura ${printData.invoiceNumber} emitida e guardada!`, "success");
+      setCart([]);
+      setClientName("");
+      setClientNif("");
+      setClientPhone("");
+      await loadAll();
     } catch (e) {
-      console.log("Venda em modo local");
+      // Nada foi gravado: o carrinho fica como está para tentar de novo.
+      fail("Fatura NÃO emitida", e);
+    } finally {
+      setSaving(false);
     }
-
-    setThermalData(printData);
-    showToast("Venda Registada com Sucesso", `Fatura ${printData.invoiceNumber} emitida!`, "success");
-
-    // Abate nas carteiras
-    cart.forEach((item) => {
-      const itemTotal = item.price * item.quantity;
-      setWallets((prev) =>
-        prev.map((w) => {
-          if (item.operator === "UNITEL" && w.type === "MSELLER") {
-            return { ...w, balance: Math.max(0, w.balance - itemTotal) };
-          }
-          if (item.operator === "AFRICELL" && w.type === "AFRIMONEY") {
-            return { ...w, balance: Math.max(0, w.balance - itemTotal) };
-          }
-          if ((item.operator === "ZAP" || item.operator === "DSTV") && w.type === "TELPLAY_ZAP") {
-            return { ...w, balance: Math.max(0, w.balance - itemTotal) };
-          }
-          return w;
-        })
-      );
-    });
-
-    if (paymentMethod === "CASH") {
-      setPoints((prev) =>
-        prev.map((p) =>
-          p.id === currentPoint.id
-            ? { ...p, currentCashBalance: Number(p.currentCashBalance) + subtotal }
-            : p
-        )
-      );
-    }
-
-    setInvoiceSeq((prev) => prev + 1);
-    setCart([]);
-    setClientName("");
-    setClientNif("");
-    setClientPhone("");
   };
 
   const currentProducts = catalog.filter((p) => p.operator === activeOperator);
@@ -727,25 +477,48 @@ export default function App() {
       </header>
 
       <div className="max-w-7xl mx-auto px-4 pt-4 space-y-4">
-        <PointShiftManager
-          points={points}
-          wallets={wallets}
-          transfers={transfers}
-          adjustments={adjustments}
-          invoices={invoices}
-          activePointId={activePointId}
-          onSelectPoint={setActivePointId}
-          onOpenShift={handleOpenShift}
-          onCloseShift={handleCloseShift}
-          onTransferBalance={handleTransferBalance}
-          onCreatePoint={handleCreatePoint}
-          onUpdatePoint={handleUpdatePoint}
-          onAddExpense={handleAddExpense}
-          onAdjustPointBalance={handleAdjustPointBalance}
-          onAdjustWalletBalance={handleAdjustWalletBalance}
-          onResetSystemData={handleResetSystemData}
-          onNotify={showToast}
-        />
+        {offline && (
+          <div className="bg-rose-50 border border-rose-200 text-rose-900 rounded-2xl p-3.5 text-xs space-y-2">
+            <p className="font-bold">⚠️ Sem ligação à base de dados. Nada do que fizer agora será guardado.</p>
+            <p className="text-rose-800">
+              Servidor configurado: <span className="font-mono break-all">{API_BASE}</span>
+            </p>
+            <button
+              onClick={loadAll}
+              className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-lg"
+            >
+              Tentar de novo
+            </button>
+          </div>
+        )}
+
+        {points.length > 0 ? (
+          <PointShiftManager
+            points={points}
+            wallets={wallets}
+            transfers={transfers}
+            adjustments={adjustments}
+            invoices={invoices}
+            activePointId={activePointId}
+            onSelectPoint={setActivePointId}
+            onOpenShift={handleOpenShift}
+            onCloseShift={handleCloseShift}
+            onTransferBalance={handleTransferBalance}
+            onCreatePoint={handleCreatePoint}
+            onUpdatePoint={handleUpdatePoint}
+            onAddExpense={handleAddExpense}
+            onAdjustPointBalance={handleAdjustPointBalance}
+            onAdjustWalletBalance={handleAdjustWalletBalance}
+            onResetSystemData={handleResetSystemData}
+            onNotify={showToast}
+          />
+        ) : (
+          !offline && (
+            <div className="bg-white border border-slate-200 rounded-2xl p-4 text-sm text-slate-600">
+              {loaded ? "Ainda não há pontos de venda na base de dados." : "A carregar dados da base de dados…"}
+            </div>
+          )
+        )}
 
         <div className="pt-2">
           <div className="flex items-center justify-between mb-2">
