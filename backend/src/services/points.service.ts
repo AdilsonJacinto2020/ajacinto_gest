@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { SalePoint } from '../entities/sale-point.entity';
@@ -31,7 +31,7 @@ export class PointsService {
     operatorName: string,
   ) {
     const point = await this.pointRepo.findOneBy({ id: pointId });
-    if (!point) throw new Error('Ponto não encontrado');
+    if (!point) throw new NotFoundException('Ponto não encontrado');
 
     const previousBalance = Number(point.currentCashBalance);
     const targetBalance = Number(newBalance);
@@ -69,8 +69,10 @@ export class PointsService {
 
   // Criar novo Ponto de Venda
   async createPoint(data: { name: string; location?: string; assignedOperatorName?: string; initialCash?: number }) {
+    if (!data?.name?.trim()) throw new BadRequestException('Dê um nome ao ponto de venda.');
+    await this.assertNameFree(data.name);
     const point = this.pointRepo.create({
-      name: data.name,
+      name: data.name.trim(),
       location: data.location || 'Luanda',
       assignedOperatorName: data.assignedOperatorName || null,
       currentCashBalance: data.initialCash || 0,
@@ -82,9 +84,13 @@ export class PointsService {
   // Atualizar / Renomear Ponto e alocar operador
   async updatePoint(id: string, data: { name?: string; location?: string; assignedOperatorName?: string }) {
     const point = await this.pointRepo.findOneBy({ id });
-    if (!point) throw new Error('Ponto não encontrado');
+    if (!point) throw new NotFoundException('Ponto não encontrado');
 
-    if (data.name !== undefined) point.name = data.name;
+    if (data.name !== undefined) {
+      if (!data.name.trim()) throw new BadRequestException('O nome do ponto não pode ficar vazio.');
+      await this.assertNameFree(data.name, id);
+      point.name = data.name.trim();
+    }
     if (data.location !== undefined) point.location = data.location;
     if (data.assignedOperatorName !== undefined) point.assignedOperatorName = data.assignedOperatorName;
 
@@ -94,10 +100,10 @@ export class PointsService {
   // Registar Saída / Despesa de Dinheiro no Ponto
   async addExpense(pointId: string, amount: number, reason: string, operatorName: string) {
     const point = await this.pointRepo.findOneBy({ id: pointId });
-    if (!point) throw new Error('Ponto não encontrado');
+    if (!point) throw new NotFoundException('Ponto não encontrado');
 
     if (Number(point.currentCashBalance) < Number(amount)) {
-      throw new Error('Saldo em caixa insuficiente para esta saída');
+      throw new BadRequestException('Saldo em caixa insuficiente para esta saída');
     }
 
     point.currentCashBalance = Number(point.currentCashBalance) - Number(amount);
@@ -126,7 +132,7 @@ export class PointsService {
 
   async openShift(pointId: string, operatorName: string, openingCash: number) {
     const point = await this.pointRepo.findOneBy({ id: pointId });
-    if (!point) throw new Error('Ponto não encontrado');
+    if (!point) throw new NotFoundException('Ponto não encontrado');
 
     const shift = this.shiftRepo.create({
       salePoint: point,
@@ -147,7 +153,7 @@ export class PointsService {
 
   async closeShift(pointId: string, declaredCash: number) {
     const point = await this.pointRepo.findOneBy({ id: pointId });
-    if (!point) throw new Error('Ponto não encontrado');
+    if (!point) throw new NotFoundException('Ponto não encontrado');
 
     const calculatedCash = Number(point.currentCashBalance);
     const declared = Number(declaredCash);
@@ -187,6 +193,23 @@ export class PointsService {
     };
   }
 
+  /** Nomes de pontos e carteiras não podem repetir-se: as transferências usam o nome. */
+  private async assertNameFree(name: string, ignoreId?: string) {
+    const wanted = name.trim().toLowerCase();
+    const points = await this.pointRepo.find();
+    if (points.some((p) => p.id !== ignoreId && p.name.trim().toLowerCase() === wanted)) {
+      throw new BadRequestException(`Já existe um ponto chamado "${name.trim()}".`);
+    }
+    const reserved = ['caixa geral', 'mseller', 'afrimoney', 'telplay'];
+    if (reserved.some((r) => wanted.startsWith(r))) {
+      throw new BadRequestException('Esse nome está reservado a uma carteira. Escolha outro.');
+    }
+  }
+
+  /**
+   * Cria o ponto inicial só na primeira vez (base de dados vazia), com 0 Kz e fechado.
+   * Não inventa saldos nem operadores.
+   */
   async seedDefaultPoints() {
     const count = await this.pointRepo.count();
     if (count === 0) {
@@ -194,14 +217,7 @@ export class PointsService {
         {
           name: 'Ponto Morro Bento (Sede)',
           location: 'Distrito Urbano de Samba, Morro Bento, junto ao Imetro',
-          currentCashBalance: 125000,
-          isOpen: true,
-          currentOperatorName: 'Adilson Jacinto',
-        },
-        {
-          name: 'Ponto Balcão Imetro',
-          location: 'Rua Principal do Imetro',
-          currentCashBalance: 45000,
+          currentCashBalance: 0,
           isOpen: false,
         },
       ]);

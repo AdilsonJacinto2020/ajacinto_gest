@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Wallet, WalletType } from '../entities/wallet.entity';
@@ -24,7 +24,7 @@ export class WalletsService {
     operatorName: string,
   ) {
     const wallet = await this.walletRepo.findOneBy({ id: walletId });
-    if (!wallet) throw new Error('Carteira não encontrada');
+    if (!wallet) throw new NotFoundException('Carteira não encontrada');
 
     const previousBalance = Number(wallet.balance);
     const targetBalance = Number(newBalance);
@@ -56,30 +56,15 @@ export class WalletsService {
     }
   }
 
+  /** Cria as 4 carteiras só na primeira vez, todas a 0 Kz. Os saldos reais entram por "Ajustar saldo". */
   async seedDefaultWallets() {
     const count = await this.walletRepo.count();
     if (count === 0) {
       await this.walletRepo.save([
-        {
-          type: WalletType.CAIXA_GERAL,
-          name: 'Caixa Geral (Empresa)',
-          balance: 2500000,
-        },
-        {
-          type: WalletType.MSELLER,
-          name: 'mSeller (Unitel)',
-          balance: 480000,
-        },
-        {
-          type: WalletType.AFRIMONEY,
-          name: 'Afrimoney (Africell)',
-          balance: 320000,
-        },
-        {
-          type: WalletType.TELPLAY_ZAP,
-          name: 'Telplay / ZAP / DStv',
-          balance: 650000,
-        },
+        { type: WalletType.CAIXA_GERAL, name: 'Caixa Geral (Empresa)', balance: 0 },
+        { type: WalletType.MSELLER, name: 'mSeller (Unitel)', balance: 0 },
+        { type: WalletType.AFRIMONEY, name: 'Afrimoney (Africell)', balance: 0 },
+        { type: WalletType.TELPLAY_ZAP, name: 'Telplay / ZAP / DStv', balance: 0 },
       ]);
     }
   }
