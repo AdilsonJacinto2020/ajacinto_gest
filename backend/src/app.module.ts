@@ -10,6 +10,7 @@ import { InvoiceItem } from './entities/invoice-item.entity';
 import { User, UserRole } from './entities/user.entity';
 import { CashExpense } from './entities/cash-expense.entity';
 import { BalanceAdjustment } from './entities/balance-adjustment.entity';
+import { DocumentSequence } from './entities/document-sequence.entity';
 
 import { PointsController } from './controllers/points.controller';
 import { InvoicesController } from './controllers/invoices.controller';
@@ -31,7 +32,10 @@ import { WalletsService } from './services/wallets.service';
         process.env.DATABASE_URL ||
         'postgres://postgres:postgres@localhost:5432/adijacinto_db',
       autoLoadEntities: true,
-      synchronize: true, // Automático para ambiente de desenvolvimento
+      // Cria/ajusta as tabelas sozinho. Quando o sistema estiver estável, defina DB_SYNC=false
+      // no servidor para impedir qualquer alteração automática da estrutura.
+      synchronize: process.env.DB_SYNC !== 'false',
+      extra: { max: Number(process.env.DB_POOL_MAX) || 3 }, // poucas ligações por instância (serverless)
       ssl:
         process.env.DATABASE_URL?.includes('neon.tech') ||
         process.env.DATABASE_URL?.includes('supabase')
@@ -48,6 +52,7 @@ import { WalletsService } from './services/wallets.service';
       User,
       CashExpense,
       BalanceAdjustment,
+      DocumentSequence,
     ]),
   ],
   controllers: [
